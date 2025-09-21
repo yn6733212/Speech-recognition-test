@@ -281,6 +281,15 @@ def upload_audio():
         log.error(f"שגיאה בהורדת קובץ מימות: {e}")
         return jsonify({"error": "שגיאה בהורדה או בעיבוד הקובץ"}), 500
 
+# -------------------- הורדת קובץ ZIP --------------------
+@app.route("/download/<filename>", methods=["GET"])
+def download_file(filename):
+    """משרת את קובץ ה-ZIP שנוצר לעיבוד"""
+    file_path = os.path.join(OUTPUT_DIR, filename)
+    if not os.path.exists(file_path):
+        return jsonify({"error": "קובץ לא נמצא"}), 404
+    return send_file(file_path, as_attachment=True)
+
 # -------------------- הרצה --------------------
 if __name__ == "__main__":
     ensure_ffmpeg()
