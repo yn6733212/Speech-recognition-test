@@ -238,7 +238,7 @@ def process_audio(input_file):
 # -------------------- Flask API --------------------
 app = Flask(__name__)
 
-@app.route("/upload_audimport os
+@app.route("/upload_audio", methods=["GET"])
 import sys
 import logging
 import datetime
