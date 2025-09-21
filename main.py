@@ -45,13 +45,18 @@ def glog(msg: str):
 def gsep():
     log.info(f"{GREEN}{'-'*40}{RESET}")
 
+# -------------------- הגדרות ימות --------------------
+USERNAME = "0733181201"
+PASSWORD = "6714453"
+TOKEN = f"{USERNAME}:{PASSWORD}"
+
+YEMOT_DOWNLOAD_URL = "https://www.call2all.co.il/ym/api/DownloadFile"
+TEMP_INPUT_WAV = "temp_input.wav"
+
 # -------------------- התקנת FFmpeg אוטומטית --------------------
 FFMPEG_EXECUTABLE = "ffmpeg"
 
 def ensure_ffmpeg():
-    """
-    מוריד FFmpeg סטטי ומתקין מקומית אם לא קיים במערכת
-    """
     glog("בודק FFmpeg...")
     global FFMPEG_EXECUTABLE
     if not shutil.which("ffmpeg"):
@@ -241,17 +246,35 @@ app = Flask(__name__)
 @app.route("/upload_audio", methods=["GET"])
 def upload_audio():
     """
-    נקודת קצה שמתאימה לבקשות GET.
-    חובה לשלוח פרמטר בשם 'path' שמכיל את הנתיב לקובץ שמע בשרת.
-    לדוגמה: /upload_audio?path=sample.wav
+    ימות שולחת פרמטר stockname עם הנתיב לשלוחה.
+    השרת מוריד את הקובץ מהשלוחה, שומר מקומית ומבצע עיבוד מלא.
     """
-    audio_path = request.args.get("path")
-    if not audio_path or not os.path.exists(audio_path):
-        return jsonify({"error": "חסר פרמטר 'path' או שהקובץ לא קיים"}), 400
+    stockname = request.args.get('stockname')
+    if not stockname:
+        log.error("❌ חסר פרמטר 'stockname'")
+        return jsonify({"error": "Missing 'stockname' parameter"}), 400
 
-    glog(f"📡 התקבלה בקשת GET עם קובץ: {audio_path}")
-    process_audio(audio_path)
-    return jsonify({"status": "ok", "method": "GET"}), 200
+    # שליפת הקובץ מהשלוחה בימות
+    file_path_on_yemot = f"ivr2:/{stockname.lstrip('/')}"
+    params = {"token": TOKEN, "path": file_path_on_yemot}
+
+    try:
+        response = requests.get(YEMOT_DOWNLOAD_URL, params=params, timeout=30)
+        response.raise_for_status()
+
+        with open(TEMP_INPUT_WAV, 'wb') as f:
+            f.write(response.content)
+
+        glog(f"📡 התקבלה הקלטה מהשלוחה: {stockname}")
+        process_audio(TEMP_INPUT_WAV)
+        return jsonify({"status": "ok"}), 200
+
+    except requests.exceptions.RequestException as e:
+        log.error(f"❌ שגיאה בהורדה מימות: {e}")
+        return jsonify({"error": "Failed to download audio file"}), 500
+    except Exception as e:
+        log.error(f"❌ שגיאה בעיבוד: {e}")
+        return jsonify({"error": "Failed to process audio"}), 500
 
 # -------------------- הרצה --------------------
 if __name__ == "__main__":
