@@ -43,7 +43,6 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 TOKEN = "0733181201:6714453"  # פרטי ימות
 YEMOT_DOWNLOAD_URL = "https://www.call2all.co.il/ym/api/DownloadFile"
-BASE_URL = "https://speech-recognition-test-production.up.railway.app"
 
 # -------------------- התקנת FFmpeg --------------------
 FFMPEG_EXECUTABLE = "ffmpeg"
@@ -101,8 +100,8 @@ def normalize_pydub(input_file, output_file):
     normalized_audio = effects.normalize(audio)
     normalized_audio.export(output_file, format="wav")
 
-def add_silence(input_file, output_file, ms=500):
-    """הוספת שקט מלאכותי בהתחלה ובסוף"""
+def add_silence(input_file, output_file, ms=1000):
+    """הוספת שקט מלאכותי בהתחלה ובסוף (1 שניה כברירת מחדל)"""
     sound = AudioSegment.from_file(input_file, format="wav")
     silence = AudioSegment.silent(duration=ms)
     padded = silence + sound + silence
@@ -138,29 +137,29 @@ def apply_enhancement(input_file, output_file, enhancement_type, strength="weak"
     if enhancement_type == "highpass_lowpass":
         if strength == "weak":
             filter_str = "highpass=f=200, lowpass=f=3000"
-        else:
-            filter_str = "highpass=f=400, lowpass=f=2500"
+        else:  # חזק יותר
+            filter_str = "highpass=f=500, lowpass=f=2000"
         run_ffmpeg_filter(input_file, output_file, filter_str)
 
     elif enhancement_type == "noise_reduction":
         if strength == "weak":
             filter_str = "afftdn=nf=-25"
-        else:
-            filter_str = "afftdn=nf=-35"
+        else:  # חזק יותר
+            filter_str = "afftdn=nf=-45"
         run_ffmpeg_filter(input_file, output_file, filter_str)
 
     elif enhancement_type == "dynaudnorm":
         if strength == "weak":
             filter_str = "dynaudnorm=f=250:g=15"
-        else:
-            filter_str = "dynaudnorm=f=500:g=31"
+        else:  # חזק יותר
+            filter_str = "dynaudnorm=f=1000:g=40"
         run_ffmpeg_filter(input_file, output_file, filter_str)
 
     elif enhancement_type == "compressor":
         if strength == "weak":
             filter_str = "acompressor=threshold=-15dB:ratio=2:attack=20:release=250"
-        else:
-            filter_str = "acompressor=threshold=-25dB:ratio=4:attack=10:release=100"
+        else:  # חזק יותר
+            filter_str = "acompressor=threshold=-30dB:ratio=6:attack=5:release=80"
         run_ffmpeg_filter(input_file, output_file, filter_str)
 
     elif enhancement_type == "reencode":
@@ -250,7 +249,7 @@ def process_audio(input_file):
     # 6. יצירת קובץ ZIP
     zip_path = create_zip_from_folder(run_dir)
     glog(f"📦 קובץ ZIP נוצר: {zip_path}")
-    glog(f"📥 להורדה: {BASE_URL}/download/{os.path.basename(zip_path)}")
+    glog(f"להורדה: https://speech-recognition-test-production.up.railway.app/download/{os.path.basename(zip_path)}")
     gsep()
 
     return zip_path
@@ -281,14 +280,6 @@ def upload_audio():
     except Exception as e:
         log.error(f"שגיאה בהורדת קובץ מימות: {e}")
         return jsonify({"error": "שגיאה בהורדה או בעיבוד הקובץ"}), 500
-
-# נתיב להורדה ישירה
-@app.route("/download/<filename>", methods=["GET"])
-def download_file(filename):
-    full_path = os.path.join(OUTPUT_DIR, filename)
-    if not os.path.exists(full_path):
-        return jsonify({"error": "קובץ לא נמצא"}), 404
-    return send_file(full_path, as_attachment=True)
 
 # -------------------- הרצה --------------------
 if __name__ == "__main__":
