@@ -87,7 +87,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 TOKEN = "0733181201:6714453"  # פרטי ימות
 YEMOT_DOWNLOAD_URL = "https://www.call2all.co.il/ym/api/DownloadFile"
 
-# -------------------- פונקציות שיפורי שמע --------------------
+# -------------------- פונקציות עיבוד שמע --------------------
 def run_ffmpeg_filter(input_file, output_file, filter_str):
     """הרצת פילטר FFmpeg"""
     cmd = [FFMPEG_EXECUTABLE, "-y", "-i", input_file, "-af", filter_str, output_file]
@@ -98,21 +98,14 @@ def run_ffmpeg_filter(input_file, output_file, filter_str):
         return False
 
 def normalize_pydub(input_file, output_file):
-    """יישור עוצמות עם Pydub"""
+    """יישור עוצמות בסיסי"""
     audio = AudioSegment.from_file(input_file, format="wav")
     normalized_audio = effects.normalize(audio)
     normalized_audio.export(output_file, format="wav")
 
-def add_silence_to_end(input_file, output_file, silence_ms=700):
-    """הוספת שקט מלאכותי לסוף ההקלטה"""
-    sound = AudioSegment.from_file(input_file, format="wav")
-    silence = AudioSegment.silent(duration=silence_ms)
-    padded = sound + silence
-    padded.export(output_file, format="wav")
-    return output_file
-
-# -------------------- זיהוי דיבור של Google --------------------
+# -------------------- Google Speech Recognition --------------------
 def transcribe_google(audio_file, improvement_name):
+    """זיהוי דיבור בגוגל"""
     r = sr.Recognizer()
     r.energy_threshold = 150
     r.dynamic_energy_threshold = True
@@ -142,7 +135,7 @@ def create_zip_from_folder(folder_path):
                 zipf.write(file_path, arcname)
     return zip_name
 
-# -------------------- עיבוד מלא --------------------
+# -------------------- תהליך מלא --------------------
 def process_audio(input_file):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_dir = os.path.join(OUTPUT_DIR, timestamp)
@@ -151,44 +144,37 @@ def process_audio(input_file):
     glog(f"📂 התחלת עיבוד חדש - תיקיה: {run_dir}")
     gsep()
 
-    # שלב 1: קובץ מקורי
-    original = os.path.join(run_dir, "original.wav")
+    # --- שמות קבצים בעברית ---
+    original = os.path.join(run_dir, "זיהוי דיבור - ללא שיפורים.wav")
+    weak = os.path.join(run_dir, "זיהוי דיבור - עם שיפורים חלשים.wav")
+    strong = os.path.join(run_dir, "זיהוי דיבור - עם שיפורים חזקים.wav")
+
+    # שלב 1: שמירת הקובץ המקורי
     AudioSegment.from_file(input_file).export(original, format="wav")
 
-    # שלב 2: הוספת שקט מלאכותי
-    padded = os.path.join(run_dir, "padded.wav")
-    add_silence_to_end(original, padded)
+    # שלב 2: שיפורים חלשים
+    run_ffmpeg_filter(original, weak, "highpass=f=200, lowpass=f=3000")
 
-    # שלב 3: שיפורי שמע
-    highlow = os.path.join(run_dir, "ffmpeg_highlow.wav")
-    run_ffmpeg_filter(padded, highlow, "highpass=f=200, lowpass=f=3000")
+    # שלב 3: שיפורים חזקים
+    run_ffmpeg_filter(weak, strong, "highpass=f=300, lowpass=f=3400, dynaudnorm,afftdn,volume=1.3")
 
-    normalized = os.path.join(run_dir, "pydub_normalized.wav")
-    normalize_pydub(highlow, normalized)
-
-    final_clean = os.path.join(run_dir, "final_clean.wav")
-    run_ffmpeg_filter(normalized, final_clean, "highpass=f=200, lowpass=f=3000, dynaudnorm,afftdn")
-
-    # שלב 4: שליחה לזיהוי Google
+    # שלב 4: הרצת זיהוי גוגל על כל הגרסאות
     files_to_check = {
-        "קובץ מקורי": original,
-        "אחרי שקט מלאכותי": padded,
-        "סינון תדרים": highlow,
-        "נורמליזציה": normalized,
-        "שיפורים מלאים": final_clean
+        "ללא שיפורים": original,
+        "שיפורים חלשים": weak,
+        "שיפורים חזקים": strong
     }
 
     for name, path in files_to_check.items():
         transcribe_google(path, name)
         log.info("-"*50)
 
-    # שלב 5: יצירת ZIP
+    # שלב 5: יצירת קובץ ZIP
     zip_path = create_zip_from_folder(run_dir)
-    glog(f"📦 קובץ ZIP נוצר: {zip_path}")
+    glog(f"📦 קובץ ZIP מוכן להורדה: /download/{timestamp}")
     gsep()
-    log.info("🏁 סיום תהליך הזיהוי")
 
-    return zip_path
+    return zip_path, timestamp
 
 # -------------------- Flask API --------------------
 app = Flask(__name__)
@@ -199,7 +185,7 @@ def upload_audio():
     if not stockname:
         return jsonify({"error": "חסר פרמטר 'stockname'"}), 400
 
-    # הורדת ההקלטה מימות
+    # הורדת הקובץ מימות
     yemot_path = f"ivr2:{stockname}"
     params = {"token": TOKEN, "path": yemot_path}
     glog(f"📡 התקבלה הקלטה מהשלוחה: {stockname}")
@@ -211,14 +197,25 @@ def upload_audio():
             f.write(response.content)
 
         # עיבוד ההקלטה
-        zip_path = process_audio(temp_file)
+        zip_path, timestamp = process_audio(temp_file)
 
-        # שליחת ה-ZIP להורדה
-        return send_file(zip_path, as_attachment=True)
+        # מחזיר קישור ישיר להורדה
+        download_url = f"/download/{timestamp}"
+        return jsonify({
+            "status": "ok",
+            "download_link": download_url
+        })
 
     except Exception as e:
         log.error(f"שגיאה בהורדת קובץ מימות: {e}")
         return jsonify({"error": "שגיאה בהורדה או בעיבוד הקובץ"}), 500
+
+@app.route("/download/<timestamp>", methods=["GET"])
+def download_zip(timestamp):
+    zip_path = os.path.join(OUTPUT_DIR, f"{timestamp}.zip")
+    if not os.path.exists(zip_path):
+        return jsonify({"error": "קובץ לא נמצא"}), 404
+    return send_file(zip_path, as_attachment=True, download_name=f"processed_{timestamp}.zip")
 
 # -------------------- הרצה --------------------
 if __name__ == "__main__":
