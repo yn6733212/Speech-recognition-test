@@ -1,0 +1,6 @@
+Flask
+SpeechRecognition
+openai-whisper
+pydub
+requests
+ffmpeg-python
