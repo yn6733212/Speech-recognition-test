@@ -4,3 +4,8 @@ openai-whisper
 pydub
 requests
 ffmpeg-python
+Flask
+requests
+pydub
+SpeechRecognition
+rapidfuzz
